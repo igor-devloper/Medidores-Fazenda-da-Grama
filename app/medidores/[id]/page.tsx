@@ -11,10 +11,15 @@ import { HourlyConsumptionChart } from "@/app/components/hourly-consumption-char
 import { ExportPdfButton } from "@/app/components/export-pdf-button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/ui/tabs"
 
-export default async function MedidorPage({ params }: { params: { id: string } }) {
+interface PageProps {
+  params: Promise<{ id: string }>
+}
+
+export default async function MedidorPage({ params }: PageProps) {
+  const { id } = await params
   const medidor = await prisma.medidor.findUnique({
     where: {
-      id: Number.parseInt(params.id),
+      id: Number.parseInt(id),
     },
     include: {
       leituras: {

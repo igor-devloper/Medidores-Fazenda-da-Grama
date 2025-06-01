@@ -1,40 +1,12 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-
-export async function POST(request: Request) {
-  try {
-    const body = await request.json()
-    const { idVirtual, ip, enderecoMAC, fusoHorario, forcaSinal, nome, localizacao, tuyaDeviceId } = body
-
-    const medidor = await prisma.medidor.create({
-      data: {
-        idVirtual,
-        ip,
-        enderecoMAC,
-        fusoHorario: fusoHorario || "America/Sao_Paulo",
-        forcaSinal,
-        nome,
-        localizacao,
-        tuyaDeviceId,
-      },
-    })
-
-    return NextResponse.json(medidor, { status: 201 })
-  } catch (error: any) {
-    console.error("Erro ao criar medidor:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-}
 
 export async function GET() {
   try {
     const medidores = await prisma.medidor.findMany({
       include: {
         leituras: {
-          orderBy: {
-            timestamp: "desc",
-          },
+          orderBy: { timestamp: "desc" },
           take: 1,
         },
         _count: {
@@ -46,8 +18,34 @@ export async function GET() {
     })
 
     return NextResponse.json(medidores)
-  } catch (error: any) {
+  } catch (error) {
     console.error("Erro ao buscar medidores:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: "Erro interno do servidor" }, { status: 500 })
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+
+    const medidor = await prisma.medidor.create({
+      data: {
+        nome: body.nome,
+        idVirtual: body.idVirtual,
+        enderecoMAC: body.enderecoMAC,
+        ip: body.ip,
+        localizacao: body.localizacao,
+        fusoHorario: body.fusoHorario || "America/Sao_Paulo",
+        forcaSinal: body.forcaSinal,
+        tuyaDeviceId: body.tuyaDeviceId,
+        ativo: body.ativo ?? true,
+        ultimaLeitura: new Date(),
+      },
+    })
+
+    return NextResponse.json(medidor, { status: 201 })
+  } catch (error) {
+    console.error("Erro ao criar medidor:", error)
+    return NextResponse.json({ error: "Erro interno do servidor" }, { status: 500 })
   }
 }

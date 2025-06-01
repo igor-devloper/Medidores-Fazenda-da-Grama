@@ -1,45 +1,90 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { NextResponse } from "next/server"
-import { getDeviceIdFromVirtualId, getDeviceStatus } from "@/lib/tuya-api"
+import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { setTuyaUid, getDeviceStatus } from "@/lib/tuya-api"
 
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+// Configurar o UID da conta Tuya
+setTuyaUid("az1742355872329ya07v")
+
+interface RouteParams {
+  params: Promise<{ id: string }>
+}
+
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const { id } = await params
+    const medidorId = Number.parseInt(id)
+
+    if (isNaN(medidorId)) {
+      return NextResponse.json({ error: "ID inválido" }, { status: 400 })
+    }
+
+    // Buscar o medidor no banco
     const medidor = await prisma.medidor.findUnique({
-      where: {
-        id: Number.parseInt(params.id),
-      },
+      where: { id: medidorId },
     })
 
     if (!medidor) {
       return NextResponse.json({ error: "Medidor não encontrado" }, { status: 404 })
     }
 
-    let deviceId = medidor.tuyaDeviceId
+    if (!medidor.tuyaDeviceId) {
+      return NextResponse.json({ error: "Medidor não possui tuyaDeviceId configurado" }, { status: 400 })
+    }
 
-    if (!deviceId) {
-      deviceId = await getDeviceIdFromVirtualId(medidor.idVirtual)
-      if (!deviceId) {
-        return NextResponse.json({ error: "ID do dispositivo Tuya não encontrado" }, { status: 404 })
+    // Buscar status atual do dispositivo Tuya
+    const status = await getDeviceStatus(medidor.tuyaDeviceId)
+
+    // Processar e formatar os dados
+    const dadosProcessados = {
+      medidorId: medidor.id,
+      nome: medidor.nome,
+      online: false,
+      energiaTotal: 0,
+      energiaReversa: 0,
+      frequencia: 0,
+      dadosBrutos: status,
+      timestamp: new Date().toISOString(),
+    }
+
+    // Processar cada status retornado
+    for (const s of status) {
+      switch (s.code) {
+        case "forward_energy_total":
+          const energiaTotal = typeof s.value === "number" ? s.value : Number.parseFloat(s.value)
+          if (!isNaN(energiaTotal)) {
+            dadosProcessados.energiaTotal = energiaTotal / 100 // Aplicar scale
+          }
+          break
+
+        case "reverse_energy_total":
+          const energiaReversa = typeof s.value === "number" ? s.value : Number.parseFloat(s.value)
+          if (!isNaN(energiaReversa)) {
+            dadosProcessados.energiaReversa = energiaReversa / 100 // Aplicar scale
+          }
+          break
+
+        case "online_state":
+          dadosProcessados.online = s.value === "online"
+          break
+
+        case "frequency":
+          const frequencia = typeof s.value === "number" ? s.value : Number.parseFloat(s.value)
+          if (!isNaN(frequencia)) {
+            dadosProcessados.frequencia = frequencia / 100 // Aplicar scale se necessário
+          }
+          break
       }
     }
 
-    const statusData = await getDeviceStatus(deviceId)
-
-    return NextResponse.json({
-      id: medidor.id,
-      idVirtual: medidor.idVirtual,
-      nome: medidor.nome,
-      status: statusData,
-      online: true,
-      lastUpdate: new Date().toISOString(),
-    })
+    return NextResponse.json(dadosProcessados)
   } catch (error: any) {
-    console.error("Erro ao obter status do medidor:", error)
+    console.error("Erro ao buscar status do medidor:", error)
     return NextResponse.json(
       {
-        error: error.message || "Erro ao obter status do medidor",
-        online: false,
+        error: "Erro ao consultar dispositivo Tuya",
+        details: error.message,
+        timestamp: new Date().toISOString(),
       },
       { status: 500 },
     )

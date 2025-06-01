@@ -1,19 +1,25 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+interface RouteParams {
+  params: Promise<{ id: string }>
+}
+
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const { id } = await params
+    const medidorId = Number.parseInt(id)
+
+    if (isNaN(medidorId)) {
+      return NextResponse.json({ error: "ID inválido" }, { status: 400 })
+    }
+
     const medidor = await prisma.medidor.findUnique({
-      where: {
-        id: Number.parseInt(params.id),
-      },
+      where: { id: medidorId },
       include: {
         leituras: {
-          orderBy: {
-            timestamp: "desc",
-          },
-          take: 20,
+          orderBy: { timestamp: "desc" },
+          take: 100,
         },
       },
     })
@@ -23,48 +29,62 @@ export async function GET(request: Request, { params }: { params: { id: string }
     }
 
     return NextResponse.json(medidor)
-  } catch (error: any) {
+  } catch (error) {
     console.error("Erro ao buscar medidor:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: "Erro interno do servidor" }, { status: 500 })
   }
 }
 
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
+    const { id } = await params
+    const medidorId = Number.parseInt(id)
+
+    if (isNaN(medidorId)) {
+      return NextResponse.json({ error: "ID inválido" }, { status: 400 })
+    }
+
     const body = await request.json()
-    const { nome, localizacao, ativo, tuyaDeviceId } = body
 
     const medidor = await prisma.medidor.update({
-      where: {
-        id: Number.parseInt(params.id),
-      },
+      where: { id: medidorId },
       data: {
-        nome,
-        localizacao,
-        ativo,
-        tuyaDeviceId,
-        updatedAt: new Date(),
+        nome: body.nome,
+        localizacao: body.localizacao,
+        ativo: body.ativo,
+        tuyaDeviceId: body.tuyaDeviceId,
       },
     })
 
     return NextResponse.json(medidor)
-  } catch (error: any) {
+  } catch (error) {
     console.error("Erro ao atualizar medidor:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: "Erro interno do servidor" }, { status: 500 })
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    await prisma.medidor.delete({
-      where: {
-        id: Number.parseInt(params.id),
-      },
+    const { id } = await params
+    const medidorId = Number.parseInt(id)
+
+    if (isNaN(medidorId)) {
+      return NextResponse.json({ error: "ID inválido" }, { status: 400 })
+    }
+
+    // Primeiro deletar todas as leituras relacionadas
+    await prisma.leitura.deleteMany({
+      where: { medidorId: medidorId },
     })
 
-    return NextResponse.json({ message: "Medidor excluído com sucesso" })
-  } catch (error: any) {
-    console.error("Erro ao excluir medidor:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    // Depois deletar o medidor
+    await prisma.medidor.delete({
+      where: { id: medidorId },
+    })
+
+    return NextResponse.json({ message: "Medidor deletado com sucesso" })
+  } catch (error) {
+    console.error("Erro ao deletar medidor:", error)
+    return NextResponse.json({ error: "Erro interno do servidor" }, { status: 500 })
   }
 }
