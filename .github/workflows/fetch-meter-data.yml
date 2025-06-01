@@ -1,0 +1,43 @@
+name: Fetch Meter Data
+
+on:
+  schedule:
+    # Executa a cada hora (0 minutos de cada hora)
+    - cron: '0 * * * *'
+  workflow_dispatch: # Permite execução manual
+
+jobs:
+  fetch-data:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Fetch Meter Data
+      run: |
+        echo "🚀 Iniciando coleta de dados dos medidores..."
+        
+        # Fazer requisição para a API da Vercel
+        response=$(curl -s -w "%{http_code}" \
+          -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+          -H "Content-Type: application/json" \
+          -X GET \
+          "${{ secrets.VERCEL_APP_URL }}/api/cron/fetch-meter-data")
+        
+        # Extrair código de status HTTP
+        http_code="${response: -3}"
+        response_body="${response%???}"
+        
+        echo "📊 Código de resposta: $http_code"
+        echo "📋 Resposta: $response_body"
+        
+        # Verificar se a requisição foi bem-sucedida
+        if [ "$http_code" -eq 200 ]; then
+          echo "✅ Coleta de dados executada com sucesso!"
+        else
+          echo "❌ Erro na coleta de dados. Código: $http_code"
+          echo "Resposta: $response_body"
+          exit 1
+        fi
+        
+    - name: Log Execution Time
+      run: |
+        echo "⏰ Execução finalizada em: $(date)"

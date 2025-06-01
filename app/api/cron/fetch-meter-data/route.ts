@@ -274,7 +274,7 @@ async function coletarDadosDeStatus() {
 
 export async function GET(request: NextRequest) {
   try {
-    // Verificar se a requisição vem do cron da Vercel ou tem a chave de autorização
+    // Verificar se a requisição vem do GitHub Actions ou tem a chave de autorização
     const authHeader = request.headers.get("authorization")
     const cronSecret = process.env.CRON_SECRET
 
@@ -282,13 +282,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    console.log("🚀 Iniciando coleta de dados via API Route...")
+    // Verificar origem da requisição
+    const userAgent = request.headers.get("user-agent") || ""
+    const isFromGitHub = userAgent.includes("curl") || request.headers.get("x-github-actions")
+
+    console.log(`🚀 Iniciando coleta de dados via ${isFromGitHub ? "GitHub Actions" : "API Route"}...`)
     await coletarDadosDeStatus()
 
     return NextResponse.json({
       success: true,
       message: "Coleta de dados executada com sucesso",
       timestamp: new Date().toISOString(),
+      source: isFromGitHub ? "github-actions" : "manual",
     })
   } catch (error: any) {
     console.error("❌ Erro na API Route:", error)

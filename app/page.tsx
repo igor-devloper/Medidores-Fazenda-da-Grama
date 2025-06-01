@@ -5,6 +5,7 @@ import { Button } from "@/app/components/ui/button"
 import { Activity, Plus, Bolt } from "lucide-react"
 import { DeviceStatusCard } from "@/app/components/device-status-card"
 import { ManualFetchButton } from "@/app/components/manual-fetch-button"
+import { GitHubActionsStatus } from "@/app/components/github-actions-status"
 
 export default async function Home() {
   const medidores = await prisma.medidor.findMany({
@@ -55,7 +56,7 @@ export default async function Home() {
       </div>
 
       {/* Estatísticas Gerais */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <Card className="bg-gradient-to-br from-emerald-50 to-white">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Energia Total do Sistema</CardTitle>
@@ -91,6 +92,10 @@ export default async function Home() {
             <p className="text-xs text-muted-foreground">Registros históricos</p>
           </CardContent>
         </Card>
+
+        <div className="md:col-span-1">
+          <GitHubActionsStatus />
+        </div>
       </div>
 
       {/* Lista de Dispositivos */}
