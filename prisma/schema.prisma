@@ -1,0 +1,40 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Medidor {
+  id            Int       @id @default(autoincrement())
+  idVirtual     String    @unique
+  ip            String
+  enderecoMAC   String    @unique
+  fusoHorario   String    @default("America/Sao_Paulo")
+  forcaSinal    String?
+  ultimaLeitura DateTime  @default(now())
+  ativo         Boolean   @default(true)
+  tuyaDeviceId  String?   // ID do dispositivo na plataforma Tuya
+  nome          String?   // Nome amigável do medidor
+  localizacao   String?   // Localização do medidor
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  leituras      Leitura[]
+
+  @@map("medidores")
+}
+
+model Leitura {
+  id        Int      @id @default(autoincrement())
+  valor     Float    // Valor da leitura (potência, energia, etc.)
+  tipo      String   @default("power") // Tipo da leitura (power, current, voltage, energy)
+  unidade   String   @default("W") // Unidade de medida (W, A, V, kWh)
+  timestamp DateTime @default(now())
+  medidorId Int
+  medidor   Medidor  @relation(fields: [medidorId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@map("leituras")
+}
