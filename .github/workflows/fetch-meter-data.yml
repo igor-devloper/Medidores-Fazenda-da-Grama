@@ -3,7 +3,7 @@ name: Fetch Meter Data
 on:
   schedule:
     # Executa a cada hora (0 minutos de cada hora)
-    - cron: '0 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch: # Permite execução manual
 
 jobs:
