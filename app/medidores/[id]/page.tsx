@@ -229,12 +229,6 @@ export default async function MedidorPage({ params }: PageProps) {
             </TabsList>
             <TabsContent value="grafico">
               <div className="mb-2 text-sm text-gray-500">Data: {diaAtual}</div>
-              <div className="mb-2 text-xs text-gray-500">
-                Debug - Dados disponíveis: {Object.keys(consumoPorDiaHora[diaAtual] || {}).length} horas
-              </div>
-              <div className="mb-2 text-xs text-blue-600">
-                Servidor: {process.env.VERCEL_REGION || "local"} | Timezone: America/Sao_Paulo
-              </div>
               <HourlyConsumptionChart consumoPorHora={consumoPorDiaHora[diaAtual] || {}} data={diaAtual} />
             </TabsContent>
             <TabsContent value="tabela">
