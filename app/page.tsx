@@ -7,6 +7,8 @@ import { DeviceStatusCard } from "@/app/components/device-status-card"
 import { ManualFetchButton } from "@/app/components/manual-fetch-button"
 import { GitHubActionsStatus } from "@/app/components/github-actions-status"
 
+export const dynamic = "force-dynamic"
+
 export default async function Home() {
   const medidores = await prisma.medidor.findMany({
     include: {
