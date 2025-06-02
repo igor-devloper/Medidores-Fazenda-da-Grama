@@ -20,7 +20,7 @@ jobs:
           -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
           -H "Content-Type: application/json" \
           -X GET \
-          "${{ secrets.VERCEL_APP_URL }}/api/cron/fetch-meter-data")
+          "${{ secrets.VERCEL_URL }}/api/cron/fetch-meter-data")
         
         # Extrair código de status HTTP
         http_code="${response: -3}"
