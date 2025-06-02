@@ -18,8 +18,18 @@ export function EnergyConsumptionChart({ leituras = [] }: EnergyConsumptionChart
         .slice()
         .reverse() // Inverter para ordem cronológica
         .map((leitura) => {
+          // Usar fuso horário brasileiro (UTC-3)
           const timestamp = new Date(leitura.timestamp)
-          const hora = timestamp.getHours()
+          // Formatar a hora no fuso horário brasileiro
+          const horaFormatada = timestamp.toLocaleTimeString("pt-BR", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+            timeZone: "America/Sao_Paulo"
+          })
+          // Extrair apenas a hora (sem os minutos)
+          const hora = Number.parseInt(horaFormatada.split(":")[0])
+          
           return {
             hour: `${hora}:00`,
             consumo: leitura.valor,
