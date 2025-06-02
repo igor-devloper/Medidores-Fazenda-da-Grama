@@ -10,6 +10,7 @@ import { ConsumptionTable } from "@/app/components/consumption-table"
 import { HourlyConsumptionChart } from "@/app/components/hourly-consumption-chart"
 import { ExportPdfButton } from "@/app/components/export-pdf-button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/ui/tabs"
+import { convertToBrazilTime, getBrazilHour, formatBrazilTime } from "@/lib/timezone-utils"
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -69,13 +70,25 @@ export default async function MedidorPage({ params }: PageProps) {
     consumoUltimaHora = Math.max(0, ultimaLeitura.valor - penultimaLeitura.valor)
   }
 
-  // Organizar leituras por dia e hora para a tabela
+  // Organizar leituras por dia e hora para a tabela - USANDO UTILITÁRIOS DE TIMEZONE
   const consumoPorDiaHora: Record<string, Record<number, number>> = {}
 
   leiturasComConsumo.forEach((leitura) => {
-    const data = new Date(leitura.timestamp)
-    const dia = data.toLocaleDateString()
-    const hora = data.getHours()
+    // Converter timestamp UTC para horário brasileiro usando utilitários
+    const timestampUTC = new Date(leitura.timestamp)
+    const timestampBrasil = convertToBrazilTime(timestampUTC)
+
+    const dia = formatBrazilTime(timestampBrasil, {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    })
+    const hora = getBrazilHour(timestampUTC)
+
+    // Debug para verificar conversão
+    console.log(
+      `[DEBUG] UTC: ${timestampUTC.toISOString()}, Brasil: ${timestampBrasil.toISOString()}, Hora: ${hora}, Dia: ${dia}`,
+    )
 
     if (!consumoPorDiaHora[dia]) {
       consumoPorDiaHora[dia] = {}
@@ -90,7 +103,14 @@ export default async function MedidorPage({ params }: PageProps) {
   })
 
   // Dia mais recente para o gráfico de consumo hora a hora
-  const diaAtual = dias.length > 0 ? dias[0] : new Date().toLocaleDateString()
+  const diaAtual =
+    dias.length > 0
+      ? dias[0]
+      : formatBrazilTime(new Date(), {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        })
 
   return (
     <main className="container mx-auto p-4 md:p-6">
@@ -176,7 +196,10 @@ export default async function MedidorPage({ params }: PageProps) {
             </div>
             <p className="text-xs text-gray-500 mt-1">
               {ultimaLeituraEnergia
-                ? `Registrado em ${new Date(ultimaLeituraEnergia.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                ? `Registrado em ${formatBrazilTime(new Date(ultimaLeituraEnergia.timestamp), {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}`
                 : "Nenhum dado disponível"}
             </p>
           </CardContent>
@@ -205,13 +228,12 @@ export default async function MedidorPage({ params }: PageProps) {
               <TabsTrigger value="tabela">Tabela</TabsTrigger>
             </TabsList>
             <TabsContent value="grafico">
-              <div className="mb-2 text-sm text-gray-500">
-                Data:{" "}
-                {new Date(diaAtual).toLocaleDateString(undefined, {
-                  day: "2-digit",
-                  month: "2-digit",
-                  year: "numeric",
-                })}
+              <div className="mb-2 text-sm text-gray-500">Data: {diaAtual}</div>
+              <div className="mb-2 text-xs text-gray-500">
+                Debug - Dados disponíveis: {Object.keys(consumoPorDiaHora[diaAtual] || {}).length} horas
+              </div>
+              <div className="mb-2 text-xs text-blue-600">
+                Servidor: {process.env.VERCEL_REGION || "local"} | Timezone: America/Sao_Paulo
               </div>
               <HourlyConsumptionChart consumoPorHora={consumoPorDiaHora[diaAtual] || {}} data={diaAtual} />
             </TabsContent>
