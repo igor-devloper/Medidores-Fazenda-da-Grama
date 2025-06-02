@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { revalidatePath } from "next/cache"
 
 // Remover a execução automática do setTuyaUid durante o build
 // setTuyaUid("az1742355872329ya07v")
@@ -69,7 +70,8 @@ async function calcularESalvarConsumo(medidorId: number, valorAtual: number, tim
     } else {
       console.log(`ℹ️ Primeira leitura do medidor - consumo não calculado`)
     }
-
+    revalidatePath('/medidores/3')
+    revalidatePath('/')
     return 0
   } catch (error) {
     console.error("Erro ao calcular consumo:", error)
