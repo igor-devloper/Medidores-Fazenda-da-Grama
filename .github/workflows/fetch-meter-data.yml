@@ -9,35 +9,143 @@ on:
 jobs:
   fetch-data:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     
     steps:
-    - name: Fetch Meter Data
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: Validate Environment Variables
       run: |
-        echo "🚀 Iniciando coleta de dados dos medidores..."
+        echo "🔍 Validando variáveis de ambiente..."
         
-        # Fazer requisição para a API da Vercel
-        response=$(curl -s -w "%{http_code}" \
-          -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-          -H "Content-Type: application/json" \
-          -X GET \
-          "${{ secrets.VERCEL_URL }}/api/cron/fetch-meter-data")
-        
-        # Extrair código de status HTTP
-        http_code="${response: -3}"
-        response_body="${response%???}"
-        
-        echo "📊 Código de resposta: $http_code"
-        echo "📋 Resposta: $response_body"
-        
-        # Verificar se a requisição foi bem-sucedida
-        if [ "$http_code" -eq 200 ]; then
-          echo "✅ Coleta de dados executada com sucesso!"
-        else
-          echo "❌ Erro na coleta de dados. Código: $http_code"
-          echo "Resposta: $response_body"
+        if [ -z "${{ secrets.VERCEL_URL }}" ]; then
+          echo "❌ VERCEL_URL não está configurado"
           exit 1
         fi
         
-    - name: Log Execution Time
+        if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+          echo "❌ CRON_SECRET não está configurado"
+          exit 1
+        fi
+        
+        echo "✅ Variáveis de ambiente validadas"
+        echo "🌐 URL: ${{ secrets.VERCEL_URL }}"
+        
+    - name: Test API Connectivity
       run: |
-        echo "⏰ Execução finalizada em: $(date)"
+        echo "🔗 Testando conectividade com a API..."
+        
+        # Testar se a API está respondendo
+        status_code=$(curl -s -o /dev/null -w "%{http_code}" \
+          --connect-timeout 10 \
+          --max-time 30 \
+          "${{ secrets.VERCEL_URL }}/api/debug")
+        
+        echo "📊 Status da API debug: $status_code"
+        
+        if [ "$status_code" -eq 200 ]; then
+          echo "✅ API está respondendo"
+        else
+          echo "⚠️ API debug retornou: $status_code"
+        fi
+        
+    - name: Fetch Meter Data
+      id: fetch_data
+      run: |
+        echo "🚀 Iniciando coleta de dados dos medidores..."
+        
+        # Configurar timeout e retry
+        max_retries=3
+        retry_count=0
+        success=false
+        
+        while [ $retry_count -lt $max_retries ] && [ "$success" = false ]; do
+          retry_count=$((retry_count + 1))
+          echo "🔄 Tentativa $retry_count de $max_retries"
+          
+          # Fazer requisição para a API da Vercel com timeout
+          response=$(curl -s -w "\n%{http_code}" \
+            --connect-timeout 15 \
+            --max-time 60 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -H "User-Agent: GitHub-Actions-Cron/1.0" \
+            -X GET \
+            "${{ secrets.VERCEL_URL }}/api/cron/fetch-meter-data" \
+            || echo -e "\nERROR")
+          
+          # Separar resposta e código HTTP
+          if echo "$response" | tail -1 | grep -q "ERROR"; then
+            echo "❌ Erro de conexão na tentativa $retry_count"
+            http_code="ERROR"
+            response_body="Erro de conexão"
+          else
+            http_code=$(echo "$response" | tail -1)
+            response_body=$(echo "$response" | head -n -1)
+          fi
+          
+          echo "📊 Código de resposta: $http_code"
+          echo "📋 Resposta (primeiros 500 chars): ${response_body:0:500}"
+          
+          # Verificar se a requisição foi bem-sucedida
+          if [ "$http_code" = "200" ]; then
+            echo "✅ Coleta de dados executada com sucesso!"
+            success=true
+            
+            # Tentar extrair informações da resposta JSON
+            if command -v jq >/dev/null 2>&1; then
+              echo "$response_body" | jq -r '.message // "Sem mensagem"' 2>/dev/null || echo "Resposta não é JSON válido"
+            fi
+            
+          elif [ "$http_code" = "401" ]; then
+            echo "❌ Erro de autorização (401). Verifique CRON_SECRET"
+            exit 1
+          elif [ "$http_code" = "404" ]; then
+            echo "❌ Endpoint não encontrado (404). Verifique VERCEL_URL"
+            exit 1
+          else
+            echo "⚠️ Erro na coleta de dados. Código: $http_code"
+            echo "Resposta completa: $response_body"
+            
+            if [ $retry_count -lt $max_retries ]; then
+              echo "⏳ Aguardando 30 segundos antes da próxima tentativa..."
+              sleep 30
+            fi
+          fi
+        done
+        
+        if [ "$success" = false ]; then
+          echo "❌ Falha após $max_retries tentativas"
+          exit 1
+        fi
+        
+    - name: Log Execution Summary
+      if: always()
+      run: |
+        echo "📊 Resumo da Execução:"
+        echo "⏰ Horário: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+        echo "🌍 Timezone: $(date '+%Z %z')"
+        echo "🔧 Runner: ${{ runner.os }}"
+        echo "📍 Workflow: ${{ github.workflow }}"
+        echo "🔀 Ref: ${{ github.ref }}"
+        
+        if [ "${{ steps.fetch_data.outcome }}" = "success" ]; then
+          echo "✅ Status: Sucesso"
+        else
+          echo "❌ Status: Falha"
+        fi
+        
+    - name: Notify on Failure
+      if: failure()
+      run: |
+        echo "🚨 ALERTA: Falha na coleta de dados dos medidores"
+        echo "⏰ Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+        echo "🔗 Workflow URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        echo "📧 Considere verificar os logs e configurações"

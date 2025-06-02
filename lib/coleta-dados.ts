@@ -136,27 +136,36 @@ export async function coletarDadosDeStatus() {
   console.log("⚡ Coletando dados de energia dos medidores...")
 
   try {
-    // Importar dinamicamente para evitar problemas no build
-    const { setTuyaUid, getDeviceStatus } = await import("@/lib/tuya-api")
-
-    // Configurar o UID da conta Tuya
-    setTuyaUid("az1742355872329ya07v")
-
+    // Verificar se há medidores ativos antes de tentar importar a API Tuya
     const medidores = await prisma.medidor.findMany({
       where: { ativo: true },
     })
 
     if (medidores.length === 0) {
       console.log("ℹ️ Nenhum medidor ativo encontrado")
-      return { success: true, message: "Nenhum medidor ativo encontrado", medidores: 0 }
+      return {
+        success: true,
+        message: "Nenhum medidor ativo encontrado",
+        medidores: 0,
+        leituras: 0,
+      }
     }
+
+    // Importar dinamicamente para evitar problemas no build
+    const { setTuyaUid, getDeviceStatus } = await import("@/lib/tuya-api")
+
+    // Configurar o UID da conta Tuya
+    setTuyaUid("az1742355872329ya07v")
 
     let medidoresProcessados = 0
     let leiturasRegistradas = 0
+    const erros: string[] = []
 
     for (const medidor of medidores) {
       if (!medidor.tuyaDeviceId) {
-        console.warn(`⚠️ Medidor ${medidor.nome} não possui tuyaDeviceId definido.`)
+        const erro = `Medidor ${medidor.nome} não possui tuyaDeviceId definido`
+        console.warn(`⚠️ ${erro}`)
+        erros.push(erro)
         continue
       }
 
@@ -285,7 +294,9 @@ export async function coletarDadosDeStatus() {
 
         medidoresProcessados++
       } catch (err: any) {
-        console.error(`❌ Erro no medidor ${medidor.nome}:`, err.message)
+        const erro = `Erro no medidor ${medidor.nome}: ${err.message}`
+        console.error(`❌ ${erro}`)
+        erros.push(erro)
       }
     }
 
@@ -295,6 +306,7 @@ export async function coletarDadosDeStatus() {
       message: "Coleta finalizada com sucesso",
       medidores: medidoresProcessados,
       leituras: leiturasRegistradas,
+      erros: erros.length > 0 ? erros : undefined,
     }
   } catch (error: any) {
     console.error("❌ Erro na coleta de dados:", error.message)
