@@ -4,13 +4,52 @@ import { type NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 
-const MAPA_CODES = {
+// Mapeamento manual de deviceId → modelo
+const DEVICE_IDS = {
+  SDM01: ["ebc2ff99c2c22255d002kq"],
+  PC473: [
+    "ebb823ca0d34e88fe80ipu",
+    "eb9e149677d67b21abn1ed",
+    "eb31ded5d1d7c58ffa0enk",
+  ],
+};
+
+function identificarModeloPorDeviceId(tuyaDeviceId: string): "SDM01_WiFi+485_V1" | "PC473" | "desconhecido" {
+  if (DEVICE_IDS.SDM01.includes(tuyaDeviceId)) return "SDM01_WiFi+485_V1";
+  if (DEVICE_IDS.PC473.includes(tuyaDeviceId)) return "PC473";
+  return "desconhecido";
+}
+
+const MAPA_CODES: {
+  [code: string]: {
+    tipo: string;
+    unidade: string;
+    scale?: number;
+    modelos: string[];
+  };
+} = {
   forward_energy_total: {
     tipo: "energy_total",
     unidade: "kWh",
     scale: 2,
-  } as const,
-} as const;
+    modelos: ["SDM01_WiFi+485_V1"],
+  },
+  relay_status: {
+    tipo: "relay",
+    unidade: "",
+    modelos: ["PC473"],
+  },
+  fault: {
+    tipo: "fault",
+    unidade: "json",
+    modelos: ["PC473"],
+  },
+  switch_1: {
+    tipo: "relay_switch",
+    unidade: "boolean",
+    modelos: ["PC473"],
+  },
+};
 
 async function calcularESalvarConsumo(
   medidorId: number,
@@ -21,15 +60,11 @@ async function calcularESalvarConsumo(
   try {
     const leituraAnterior = await prisma.leitura.findFirst({
       where: {
-        medidorId: medidorId,
+        medidorId,
         tipo: "energy_total",
-        timestamp: {
-          lt: timestamp,
-        },
+        timestamp: { lt: timestamp },
       },
-      orderBy: {
-        timestamp: "desc",
-      },
+      orderBy: { timestamp: "desc" },
     });
 
     if (leituraAnterior) {
@@ -38,9 +73,9 @@ async function calcularESalvarConsumo(
       if (consumo > 0) {
         const consumoExistente = await prisma.leitura.findFirst({
           where: {
-            medidorId: medidorId,
+            medidorId,
             tipo: "consumo",
-            timestamp: timestamp,
+            timestamp,
           },
         });
 
@@ -50,32 +85,21 @@ async function calcularESalvarConsumo(
               valor: consumo,
               tipo: "consumo",
               unidade: "kWh",
-              timestamp: timestamp,
-              medidorId: medidorId,
+              timestamp,
+              medidorId,
             },
           });
-
-          console.log(
-            `📊 Consumo calculado e salvo: ${consumo.toFixed(
-              4
-            )} kWh (${valorAtual} - ${leituraAnterior.valor})`
-          );
-          return consumo;
+          console.log(`📊 Consumo calculado e salvo: ${consumo.toFixed(4)} kWh`);
         } else {
-          console.log(
-            `⏭️ Consumo já existe para este período: ${medidor.nome}`
-          );
+          console.log(`⏭️ Consumo já existente para ${medidor.nome}`);
         }
       } else if (consumo < 0) {
-        console.log(
-          `⚠️ Consumo negativo detectado (possível reset do medidor): ${consumo.toFixed(
-            4
-          )} kWh`
-        );
+        console.warn(`⚠️ Consumo negativo (reset possível): ${consumo.toFixed(4)} kWh`);
       }
     } else {
-      console.log(`ℹ️ Primeira leitura do medidor - consumo não calculado`);
+      console.log("ℹ️ Primeira leitura registrada - sem cálculo de consumo");
     }
+
     revalidatePath("/medidores/3");
     revalidatePath("/");
     return 0;
@@ -86,109 +110,131 @@ async function calcularESalvarConsumo(
 }
 
 async function coletarDadosDeStatus() {
-  console.log("⚡ Coletando dados de energia dos medidores...");
+  console.log("⚡ Coletando dados dos medidores...");
 
-  try {
-    const { setTuyaUid, getDeviceStatus } = await import("@/lib/tuya-api");
-    setTuyaUid("az1742355872329ya07v");
+  const { setTuyaUid, getDeviceStatus } = await import("@/lib/tuya-api");
+  setTuyaUid("az1742355872329ya07v");
 
-    const medidores = await prisma.medidor.findMany({
-      where: { ativo: true },
-    });
+  const medidores = await prisma.medidor.findMany({
+    where: { ativo: true },
+  });
 
-    if (medidores.length === 0) {
-      console.log("ℹ️ Nenhum medidor ativo encontrado");
-      return;
+  if (medidores.length === 0) {
+    console.log("ℹ️ Nenhum medidor ativo encontrado.");
+    return;
+  }
+
+  for (const medidor of medidores) {
+    if (!medidor.tuyaDeviceId) {
+      console.warn(`⚠️ Medidor ${medidor.nome} não tem tuyaDeviceId.`);
+      continue;
     }
 
-    for (const medidor of medidores) {
-      if (!medidor.tuyaDeviceId) {
-        console.warn(
-          `⚠️ Medidor ${medidor.nome} não possui tuyaDeviceId definido.`
-        );
-        continue;
-      }
+    try {
+      console.log(`🔎 Consultando Tuya: ${medidor.nome} — ID: ${medidor.tuyaDeviceId}`);
+      const status = await getDeviceStatus(medidor.tuyaDeviceId);
 
-      try {
-        console.log(
-          `🔎 Consultando dispositivo Tuya: ${medidor.nome} — ID: ${medidor.tuyaDeviceId}`
-        );
-        const status = await getDeviceStatus(medidor.tuyaDeviceId);
+      const timestamp = new Date();
+      timestamp.setMinutes(0, 0, 0);
 
-        const timestamp = new Date();
-        timestamp.setMinutes(0, 0, 0);
+      const modelo = identificarModeloPorDeviceId(medidor.tuyaDeviceId);
 
-        for (const s of status) {
-          const leituraMapeada = MAPA_CODES[s.code as keyof typeof MAPA_CODES];
-          if (!leituraMapeada) {
-            continue;
-          }
+      for (const s of status) {
+        const leituraMapeada = Object.entries(MAPA_CODES).find(
+          ([code, conf]) =>
+            code === s.code && conf.modelos.includes(modelo)
+        )?.[1];
 
-          console.log(`📊 Processando: ${s.code} = ${JSON.stringify(s.value)}`);
+        if (!leituraMapeada) continue;
 
-          if (s.code === "forward_energy_total") {
+        console.log(`📊 ${s.code} = ${JSON.stringify(s.value)}`);
+
+        switch (s.code) {
+          case "forward_energy_total": {
             let valor =
               typeof s.value === "number"
                 ? s.value
                 : Number.parseFloat(s.value);
             if (!isNaN(valor)) {
-              valor = valor / 100; // scale 2
-              console.log(`🔢 Energia total: ${s.value} / 100 = ${valor} kWh`);
-
-              const leituraExistente = await prisma.leitura.findFirst({
+              valor = valor / 100;
+              const exists = await prisma.leitura.findFirst({
                 where: {
                   medidorId: medidor.id,
                   tipo: "energy_total",
-                  timestamp: timestamp,
+                  timestamp,
                 },
               });
-
-              if (!leituraExistente) {
+              if (!exists) {
                 await prisma.leitura.create({
                   data: {
-                    valor: valor,
+                    valor,
                     tipo: "energy_total",
-                    unidade: "kWh",
-                    timestamp: timestamp,
+                    unidade: leituraMapeada.unidade,
+                    timestamp,
                     medidorId: medidor.id,
                   },
                 });
                 console.log(`✅ ${medidor.nome} — energy_total: ${valor} kWh`);
-
-                await calcularESalvarConsumo(
-                  medidor.id,
-                  valor,
-                  timestamp,
-                  medidor
-                );
+                await calcularESalvarConsumo(medidor.id, valor, timestamp, medidor);
               } else {
-                console.log(
-                  `⏭️ Leitura de energia total já existe: ${medidor.nome}`
-                );
+                console.log(`⏭️ Leitura já existe: ${medidor.nome}`);
               }
             }
+            break;
           }
+
+          case "relay_status":
+          case "switch_1": {
+            const valor = typeof s.value === "string" ? Number(s.value) : Number(s.value);
+            if (!isNaN(valor)) {
+              await prisma.leitura.create({
+                data: {
+                  valor,
+                  tipo: leituraMapeada.tipo,
+                  unidade: leituraMapeada.unidade,
+                  timestamp,
+                  medidorId: medidor.id,
+                },
+              });
+              console.log(`✅ ${medidor.nome} — ${s.code}: ${valor}`);
+            }
+            break;
+          }
+
+          case "fault": {
+            const valor = JSON.stringify(s.value);
+            await prisma.leitura.create({
+              data: {
+                valor: 0,
+                tipo: leituraMapeada.tipo,
+                unidade: leituraMapeada.unidade,
+                timestamp,
+                medidorId: medidor.id,
+              },
+            });
+            console.log(`🚨 Fault detectado em ${medidor.nome}: ${valor}`);
+            break;
+          }
+
+          default:
+            console.log(`ℹ️ ${s.code} não tratado.`);
         }
-
-        await prisma.medidor.update({
-          where: { id: medidor.id },
-          data: { ultimaLeitura: new Date() },
-        });
-      } catch (err: any) {
-        console.error(`❌ Erro no medidor ${medidor.nome}:`, err.message);
       }
-    }
 
-    console.log("✅ Coleta de dados de energia finalizada.");
-  } catch (error: any) {
-    console.error("❌ Erro na coleta de dados:", error.message);
-    throw error;
+      await prisma.medidor.update({
+        where: { id: medidor.id },
+        data: { ultimaLeitura: new Date() },
+      });
+    } catch (err: any) {
+      console.error(`❌ Erro com ${medidor.nome}:`, err.message);
+    }
   }
+
+  console.log("✅ Coleta finalizada.");
 }
 
 export async function GET(request: NextRequest) {
   try {
-    // Autenticação via query string (usada pelo Cronhub)
     const url = new URL(request.url);
     const secret = url.searchParams.get("secret");
     const cronSecret = process.env.CRON_SECRET;
@@ -198,20 +244,14 @@ export async function GET(request: NextRequest) {
     }
 
     const userAgent = request.headers.get("user-agent") || "";
-    const isFromGitHub =
-      userAgent.includes("curl") || request.headers.get("x-github-actions");
+    const isFromGitHub = userAgent.includes("curl") || request.headers.get("x-github-actions");
 
-    console.log(
-      `🚀 Iniciando coleta de dados via ${
-        isFromGitHub ? "GitHub Actions" : "API Route"
-      }...`
-    );
-
+    console.log(`🚀 Iniciando coleta via ${isFromGitHub ? "GitHub Actions" : "API Route"}...`);
     await coletarDadosDeStatus();
 
     return NextResponse.json({
       success: true,
-      message: "Coleta de dados executada com sucesso",
+      message: "Coleta executada com sucesso",
       timestamp: new Date().toISOString(),
       source: isFromGitHub ? "github-actions" : "manual",
     });
