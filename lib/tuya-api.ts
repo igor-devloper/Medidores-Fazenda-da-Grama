@@ -4,6 +4,13 @@ import crypto from "crypto";
 import fetch from "node-fetch";
 import { env } from "@/lib/env";
 
+
+export interface DeviceLogEntry {
+  dp_id: string;
+  value: string;
+  event_time: number;
+}
+
 const { TUYA_ACCESS_ID, TUYA_ACCESS_KEY, TUYA_API_ENDPOINT } = env;
 
 // UID global (você pode setar via setTuyaUid)
@@ -66,6 +73,42 @@ function buildSignString(method: string, path: string, body = "") {
     .update(body, "utf8")
     .digest("hex");
   return `${method}\n${bodyHash}\n\n${path}`;
+}
+export async function getDeviceLogs(
+  deviceId: string,
+  dpId: string,
+  startTime: number,
+  endTime: number
+): Promise<DeviceLogEntry[]> {
+  const token = await getTuyaToken();
+  const t = Date.now().toString();
+  const nonce = crypto.randomBytes(16).toString("hex");
+
+  const path = `/v1.0/devices/${deviceId}/logs?dp_id=${dpId}&start_time=${startTime}&end_time=${endTime}`;
+  const method = "GET";
+  const stringToSign = buildSignString(method, path);
+  const signStr = `${TUYA_ACCESS_ID}${token}${t}${nonce}${stringToSign}`;
+  const sign = hmacSHA256(TUYA_ACCESS_KEY, signStr);
+
+  const res = await fetch(`${TUYA_API_ENDPOINT}${path}`, {
+    method,
+    headers: {
+      client_id: TUYA_ACCESS_ID,
+      access_token: token,
+      sign: sign,
+      t: t,
+      nonce: nonce,
+      sign_method: "HMAC-SHA256",
+    },
+  });
+
+  const json = (await res.json()) as TuyaApiResponse<{ logs: DeviceLogEntry[] }>;
+
+  if (!json.success) {
+    throw new Error(`Erro ao buscar logs: ${json.msg} (Código: ${json.code})`);
+  }
+
+  return json.result.logs;
 }
 
 export async function getTuyaDevicesWithReadings(token: string) {
